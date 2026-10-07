@@ -1,0 +1,13 @@
+.env
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*.pem
+# 평문 비밀 — 암호화한 secrets.sops.yaml 만 커밋한다
+secrets.yaml
+*.dec.yaml

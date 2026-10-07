@@ -1,0 +1,5 @@
+# sops 암호화 규칙 — secure 키 + secure 역할 (인프라 저장소 kms/grandis-nova/ap-northeast-2 스택)
+# 값은 kms 스택 출력 그대로: ./scripts/tf.sh aws/kms/grandis-nova/ap-northeast-2 output sops_kms
+creation_rules:
+  - path_regex: secrets\.sops\.yaml$
+    kms: "arn:aws:kms:ap-northeast-2:316708313927:key/6d54c261-78dd-4733-ba48-23f30f66e2db+arn:aws:iam::316708313927:role/nova-sops-secure"
