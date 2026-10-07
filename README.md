@@ -79,6 +79,27 @@ terraform output -raw webhook_secret           # GitHub 웹훅 secret
 
 `secrets.sops.yaml` 이 없으면 비밀이 `CHANGE_ME` 로 들어가고 plan 에 경고가 뜬다. 그 상태로 Atlantis 는 GitHub 에 붙지 못한다.
 
+## 근무 시간에만 뜬다
+
+태스크(0.5 vCPU · 2 GB)는 **평일 09:00 ~ 22:00(KST)에만 1개**, 밤 · 주말에는 0개다 (`schedule_*` 변수).
+
+- 0개인 동안은 Atlantis 가 **아예 없다**. GitHub 웹훅은 ALB 에서 503 으로 끝나고, GitHub 은 다시 보내지 않는다
+- 켜진 뒤 PR 에 `atlantis plan` 댓글을 달면 그때 plan 한다 (App 이면 App 설정 → Advanced → Recent Deliveries 에서 다시 보내도 된다)
+- 진행 중이던 plan · 잠금은 태스크가 내려갈 때 사라진다. 22시 전에 apply 를 끝낸다
+- ALB 는 계속 떠 있으므로 ALB 요금은 그대로 나간다
+
+**급할 때 켜기 · 끄기** (다음 예약 시각이 오면 다시 예약대로 돌아간다)
+
+```bash
+# 켜기
+aws application-autoscaling register-scalable-target --service-namespace ecs \
+  --resource-id service/nova-atlantis/nova-atlantis --scalable-dimension ecs:service:DesiredCount \
+  --min-capacity 1 --max-capacity 1
+# 끄기 — 위 명령에서 1 을 0 으로
+```
+
+예약을 끄고 항상 띄우려면 `terraform.tfvars` 에 `schedule_enabled = false` 를 넣고 apply 한다.
+
 ## 비밀 바꾸기
 
 ```bash

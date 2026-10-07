@@ -58,13 +58,13 @@ variable "secrets_file" {
 
 # ECS Service / Task
 variable "ecs_task_cpu" {
-  description = "The number of cpu units used by the task. plan 을 여러 스택 동시에 돌리므로 넉넉히"
+  description = "The number of cpu units used by the task (512 = 0.5 vCPU)"
   type        = number
-  default     = 1024
+  default     = 512
 }
 
 variable "ecs_task_memory" {
-  description = "The amount (in MiB) of memory used by the task"
+  description = "The amount (in MiB) of memory used by the task. plan 이 동시에 여러 개 돌면 provider 마다 수백 MB 를 쓴다"
   type        = number
   default     = 2048
 }
@@ -147,4 +147,28 @@ variable "readonly_principal_arns" {
   description = "읽기 전용 역할을 빌릴 수 있는 IAM 주체 ARN. 비우면 계정 루트(= 각자의 IAM 정책이 허용한 주체)"
   type        = list(string)
   default     = []
+}
+
+# 근무 시간에만 띄운다 (Application Auto Scaling 예약 작업)
+variable "schedule_enabled" {
+  description = "켜면 평일 근무 시간에만 태스크 1개, 나머지(밤 · 주말)는 0개"
+  type        = bool
+  default     = true
+}
+
+variable "schedule_timezone" {
+  type    = string
+  default = "Asia/Seoul"
+}
+
+variable "schedule_start" {
+  description = "태스크를 1개로 올리는 시각 (Application Auto Scaling cron)"
+  type        = string
+  default     = "cron(0 9 ? * MON-FRI *)"
+}
+
+variable "schedule_stop" {
+  description = "태스크를 0개로 내리는 시각. 금요일 밤에 내리면 월요일 아침까지 0개"
+  type        = string
+  default     = "cron(0 22 ? * MON-FRI *)"
 }

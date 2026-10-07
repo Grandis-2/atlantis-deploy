@@ -359,7 +359,47 @@ resource "aws_ecs_service" "atlantis" {
 
   health_check_grace_period_seconds = 120
 
+  # 태스크 수는 아래 예약 작업(근무 시간 1 · 그 외 0)이 정한다
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
+
   tags = local.tags
+}
+
+###################
+# 근무 시간에만 띄우기
+###################
+# 평일 schedule_start 에 1개, schedule_stop 에 0개. 주말은 금요일 밤부터 월요일 아침까지 0개.
+# 꺼져 있는 동안 온 GitHub 웹훅은 받지 못한다(GitHub 은 다시 보내지 않는다). 켜진 뒤 PR 에
+# `atlantis plan` 댓글을 다시 달면 된다. 급할 때 수동으로 켜는 법은 README 에 있다.
+resource "aws_appautoscaling_target" "atlantis" {
+  count = var.schedule_enabled ? 1 : 0
+
+  service_namespace  = "ecs"
+  resource_id        = "service/${module.ecs.name}/${aws_ecs_service.atlantis.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  min_capacity       = 0
+  max_capacity       = 1
+}
+
+resource "aws_appautoscaling_scheduled_action" "atlantis" {
+  for_each = var.schedule_enabled ? {
+    start = { schedule = var.schedule_start, capacity = 1 }
+    stop  = { schedule = var.schedule_stop, capacity = 0 }
+  } : {}
+
+  name               = "${var.name}-${each.key}"
+  service_namespace  = aws_appautoscaling_target.atlantis[0].service_namespace
+  resource_id        = aws_appautoscaling_target.atlantis[0].resource_id
+  scalable_dimension = aws_appautoscaling_target.atlantis[0].scalable_dimension
+  schedule           = each.value.schedule
+  timezone           = var.schedule_timezone
+
+  scalable_target_action {
+    min_capacity = each.value.capacity
+    max_capacity = each.value.capacity
+  }
 }
 
 ###################
