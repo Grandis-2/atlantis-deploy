@@ -148,27 +148,3 @@ variable "readonly_principal_arns" {
   type        = list(string)
   default     = []
 }
-
-# 근무 시간에만 띄운다 (Application Auto Scaling 예약 작업)
-variable "schedule_enabled" {
-  description = "켜면 평일 근무 시간에만 태스크 1개, 나머지(밤 · 주말)는 0개"
-  type        = bool
-  default     = true
-}
-
-variable "schedule_timezone" {
-  type    = string
-  default = "Asia/Seoul"
-}
-
-variable "schedule_start" {
-  description = "태스크를 1개로 올리는 시각 (Application Auto Scaling cron)"
-  type        = string
-  default     = "cron(0 9 ? * MON-FRI *)"
-}
-
-variable "schedule_stop" {
-  description = "태스크를 0개로 내리는 시각. 금요일 밤에 내리면 월요일 아침까지 0개"
-  type        = string
-  default     = "cron(0 22 ? * MON-FRI *)"
-}

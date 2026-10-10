@@ -1,112 +1,105 @@
 # atlantis-deploy
 
-Terraform 을 적용하는 **Atlantis 자체**를 AWS Fargate 에 띄운다.
-구조는 [fastcampus atlantis-deploy](https://github.com/terraform-aws-modules/terraform-aws-atlantis) 를 따르고,
-모듈은 최신 메이저(alb 10 · ecs 7 · security-group 6 · acm 6)로 맞췄다.
+[nova-infra](https://github.com/Grandis-2/nova-infra)의 Terraform을 PR로 적용하는 **Atlantis 서버**를 AWS Fargate에 띄웁니다.
 
-Atlantis 가 자기 자신을 바꿀 수는 없으므로 **이 저장소만 사람이 관리자 세션으로 apply 한다.**
+Atlantis가 자기 자신을 배포할 수는 없으므로, 이 저장소만 관리자가 직접 `terraform apply` 합니다. push만으로는 반영되지 않습니다.
+
+## 아키텍처
 
 ```
-GitHub PR ──webhook──▶ ALB (https://atlantis.grandis-nova.link)
-                         └─▶ ECS Fargate 태스크 1개 (nova-atlantis)
-                               ├─ sts:AssumeRole ─▶ atlantis-grandis-nova-admin ─▶ 인프라 적용
-                               └─ sts:AssumeRole ─▶ nova-sops-common / -secure ─▶ sops 복호화
+GitHub (Grandis-2/nova-infra PR)
+  │  webhook (GitHub App: nova-atlantis)
+  ▼
+ALB  https://atlantis.grandis-nova.link        public 서브넷 · 443 (80 → 443 리다이렉트)
+  │  4141, ALB 보안 그룹에서만
+  ▼
+ECS Fargate 태스크 1개 (nova-atlantis)          app 서브넷 · 공인 IP 없음 · 밖으로는 NAT 경유
+  ├─ SSM Parameter Store   GitHub App 키 · webhook 비밀 · 웹 UI 비밀번호 · NCP 키 (시작할 때 주입)
+  ├─ S3 상태 버킷           Terraform 상태 · 잠금 (태스크 역할로 직접)
+  ├─ AssumeRole ─▶ atlantis-grandis-nova-admin   nova-infra 스택 적용
+  ├─ AssumeRole ─▶ nova-sops-common / -secure     sops 복호화
+  └─ CloudWatch Logs (14일)
 ```
 
-## 참고 레포와 다른 점
+VPC는 nova-infra의 `vpc` 스택을 그대로 씁니다(원격 상태). 두 저장소는 상태 버킷으로만 연결됩니다.
 
-| 항목 | 참고 레포 | 여기 |
+| 구성 | 내용 |
+| --- | --- |
+| 컴퓨팅 | Fargate 0.5 vCPU · 2 GB, 태스크 1개 상시 실행. Atlantis `v0.48.0` 고정 |
+| 네트워크 | ALB(public) → 태스크(app 서브넷). 태스크 보안 그룹은 ALB에서 오는 4141만 받음 |
+| 인증서 · DNS | ACM `atlantis.grandis-nova.link` + Route 53 |
+| 비밀 | `secrets.sops.yaml`(KMS 암호화)을 Terraform이 풀어 SSM SecureString에 넣음. 태스크는 시작할 때 읽음 |
+| 로그 | CloudWatch Logs 14일 |
+
+## 권한
+
+| 역할 | 누가 | 할 수 있는 것 |
 | --- | --- | --- |
-| VPC | Atlantis 전용 VPC · NAT 를 새로 만든다 | 인프라 저장소의 VPC 를 쓴다 (`vpc` 상태) |
-| 비밀 | tfvars 변수로 받아 SSM 에 넣는다 | `secrets.sops.yaml`(KMS 암호화)에서 읽어 SSM SecureString 에 넣는다 |
-| GitHub 인증 | PAT | PAT 또는 GitHub App (`atlantis_github_app_id` 가 있으면 App) |
-| 인프라 역할 | `atlantis-alias-admin` + AdministratorAccess | `atlantis-grandis-nova-admin` + PowerUser + `nova-*` IAM 쓰기만 |
-| 이미지 | `latest` | `v0.48.0` 고정 |
-| 웹 UI | 인증 없음 | Basic 인증 (비밀번호는 SSM) |
-| 환경변수 | `ATLANTIS_REPO_WHITELIST` 등 옛 이름 | `ATLANTIS_REPO_ALLOWLIST` · `ATLANTIS_REPO_CONFIG_JSON` |
+| 태스크 역할 | Atlantis 태스크 | SSM 비밀 읽기, 상태 버킷 읽기 · 쓰기, 아래 두 역할 맡기, ECS Exec |
+| `atlantis-grandis-nova-admin` | Atlantis (Terraform provider) | PowerUser + `nova-*` 이름의 IAM 리소스 쓰기 |
+| `nova-sops-common` / `-secure` | Atlantis, 관리자 | KMS로 sops 파일 복호화 |
+| `nova-readonly` | 사람 (로컬 plan) | ReadOnly + 상태 잠금 파일 쓰기. 비밀 값 · sops 복호화 불가 |
 
-## 인프라 저장소와 같아야 하는 값
+`nova-readonly`는 사람이 쓰는 역할이지만, Atlantis 역할과 함께 관리하려고 이 저장소에 둡니다.
 
-인프라 저장소는 `Grandis-2/nova-infra` 다 (Atlantis 가 PR 을 받는 저장소, `atlantis_repo_allowlist`). 아래 명령의 `../nova-infra` 는 그 저장소를 받아 둔 로컬 폴더다 (두 저장소를 나란히 둔다).
+## 보안 설정
 
-| 값 | 이 저장소 | 인프라 저장소 |
-| --- | --- | --- |
-| `product` · `env` · `aws_region` · `tfstate_bucket` | `terraform.tfvars` | `terraform/_global/global.auto.tfvars` |
-| 상태 버킷 · 리전 | `backend.hcl` | `.env` 의 `TF_BACKEND_*` |
-| sops 키 · 역할 | `.sops.yaml` (secure) | `terraform/aws/kms/grandis-nova/ap-northeast-2` 가 만든다 |
+- GitHub App으로 인증합니다. 개인 토큰이나 장기 AWS 키가 없습니다.
+- webhook은 비밀값으로 서명을 확인합니다.
+- `Grandis-2/nova-infra` 하나만 받습니다(`ATLANTIS_REPO_ALLOWLIST`).
+- 저장소가 사용자 정의 workflow를 쓸 수 없습니다(`allow_custom_workflows = false`). 저장소가 바꿀 수 있는 서버 설정은 `apply_requirements` 하나뿐입니다.
+- 웹 UI는 Basic 인증을 겁니다. 비밀번호는 SSM에 있습니다.
 
-## 처음 올리는 순서
+## 주요 서버 설정
 
-관리자 세션으로 진행한다 (인프라 저장소 `docs/setup.md` A — 이 README 는 A-5 ~ A-7 의 자세한 판).
+| 환경 변수 | 값 · 이유 |
+| --- | --- |
+| `ATLANTIS_CHECKOUT_STRATEGY` | `merge`. PR을 main과 합친 상태로 plan 해서, 그사이 main의 변경을 되돌리지 않습니다 |
+| `ATLANTIS_GH_ALLOW_MERGEABLE_BYPASS_APPLY` | `true`. main 보호 규칙이 `atlantis/apply` 체크를 요구해도 apply 전 PR을 병합 가능으로 봅니다 |
+| `ATLANTIS_HIDE_PREV_PLAN_COMMENTS` | `true`. 이전 plan 댓글을 접습니다 |
+| `TF_VAR_assume_role_arn` | 인프라 스택의 provider가 맡을 admin 역할 |
+| `TF_CLI_ARGS_init` | backend 버킷 · 리전. backend 블록에는 변수를 쓸 수 없어서 init 때 붙입니다 |
+
+PR 흐름(plan → `atlantis apply` → 자동 병합)과 스택 순서는 nova-infra의 `atlantis.yaml`이 정합니다.
+
+## 적용
+
+관리자 세션(MFA)에서 실행합니다.
 
 ```bash
-unset AWS_PROFILE   # 프로필이 남아 있으면 Terraform 이 관리자 세션 대신 그쪽을 쓴다
 eval "$(aws configure export-credentials --profile infra-admin --format env)"
-export TF_ALLOW_LOCAL_WRITE=1
-aws sts get-caller-identity   # assumed-role/BreakGlassAdmin/… 이어야 한다
-
-# 1) 인프라 저장소: 상태 버킷 → sops 키 → VPC
-cd ../nova-infra
-./scripts/bootstrap.sh
-./scripts/tf.sh aws/kms/grandis-nova/ap-northeast-2 init && ./scripts/tf.sh aws/kms/grandis-nova/ap-northeast-2 apply
-./scripts/tf.sh aws/vpc/prod init && ./scripts/tf.sh aws/vpc/prod apply
-
-# 2) 이 저장소: 비밀 파일 만들기 (.sops.yaml 의 kms 값이 kms 스택 출력 secure 와 같은지 확인)
-cd ../atlantis-deploy
-# .sops.yaml 규칙은 파일 이름으로 고른다. secrets.sops.yaml 로 만들고 제자리에서 암호화한다
-cat > secrets.sops.yaml <<'YAML'
-github_token: <PAT 방식일 때 봇 계정 토큰>
-# github_app_key: |          ← App 방식일 때 개인키(PEM) 전체
-#   -----BEGIN RSA PRIVATE KEY-----
-#   ...
-ncloud_access_key: <NCP Sub Account Access Key>
-ncloud_secret_key: <NCP Sub Account Secret Key>
-YAML
-sops --encrypt --in-place secrets.sops.yaml
-# 수정할 때는 sops secrets.sops.yaml (편집기에서 평문으로 열리고 저장 시 다시 암호화)
-
-# 3) Atlantis
 terraform init -backend-config=backend.hcl
+terraform plan
 terraform apply
-terraform output -raw atlantis_url_events      # GitHub 웹훅 URL
-terraform output -raw webhook_secret           # GitHub 웹훅 secret
 ```
 
-4. **GitHub 연결**
-   - App 방식: App 설정의 Webhook URL · secret 에 위 두 값을 넣는다
-   - PAT 방식: 인프라 저장소 Settings → Webhooks 에 넣는다 (또는 `modules/github-repository-webhook`)
-5. 인프라 저장소에 테스트 PR → `atlantis plan` 댓글이 달리면 끝
-
-`secrets.sops.yaml` 이 없으면 비밀이 `CHANGE_ME` 로 들어가고 plan 에 경고가 뜬다. 그 상태로 Atlantis 는 GitHub 에 붙지 못한다.
-
-## 근무 시간에만 뜬다
-
-태스크(0.5 vCPU · 2 GB)는 **평일 09:00 ~ 22:00(KST)에만 1개**, 밤 · 주말에는 0개다 (`schedule_*` 변수).
-
-- 0개인 동안은 Atlantis 가 **아예 없다**. GitHub 웹훅은 ALB 에서 503 으로 끝나고, GitHub 은 다시 보내지 않는다
-- 켜진 뒤 PR 에 `atlantis plan` 댓글을 달면 그때 plan 한다 (App 이면 App 설정 → Advanced → Recent Deliveries 에서 다시 보내도 된다)
-- 진행 중이던 plan · 잠금은 태스크가 내려갈 때 사라진다. 22시 전에 apply 를 끝낸다
-- ALB 는 계속 떠 있으므로 ALB 요금은 그대로 나간다
-
-**급할 때 켜기 · 끄기** (다음 예약 시각이 오면 다시 예약대로 돌아간다)
-
-```bash
-# 켜기
-aws application-autoscaling register-scalable-target --service-namespace ecs \
-  --resource-id service/nova-atlantis/nova-atlantis --scalable-dimension ecs:service:DesiredCount \
-  --min-capacity 1 --max-capacity 1
-# 끄기 — 위 명령에서 1 을 0 으로
-```
-
-예약을 끄고 항상 띄우려면 `terraform.tfvars` 에 `schedule_enabled = false` 를 넣고 apply 한다.
+태스크 정의가 바뀌면 Atlantis가 1~2분 동안 재시작합니다. 진행 중이던 plan과 잠금이 사라지므로, 다시 뜬 뒤 PR에 `atlantis plan`을 다시 답니다.
 
 ## 비밀 바꾸기
 
 ```bash
-sops secrets.sops.yaml          # 값 수정
+sops secrets.sops.yaml          # 평문으로 열고, 저장하면 다시 암호화
 terraform apply                 # SSM 갱신
 aws ecs update-service --cluster nova-atlantis --service nova-atlantis --force-new-deployment
 ```
+
+`secrets.sops.yaml`의 키는 `github_app_key`, `ncloud_access_key`, `ncloud_secret_key`입니다. 파일이 없으면 비밀이 `CHANGE_ME`로 들어가고, Atlantis는 GitHub에 붙지 못합니다.
+
+## nova-infra와 같아야 하는 값
+
+| 값 | 이 저장소 | nova-infra |
+| --- | --- | --- |
+| `product` · `env` · `aws_region` · `tfstate_bucket` | `terraform.tfvars` | `terraform/variables/global.auto.tfvars` |
+| 상태 버킷 · 리전 | `backend.hcl` | `.env`의 `TF_BACKEND_*` |
+| sops 키 · 역할 | `.sops.yaml` (secure) | `terraform/aws/kms/grandis-nova/ap-northeast-2` |
+
+## 처음부터 만들 때
+
+1. nova-infra의 상태 버킷(init), sops 키(kms), VPC를 관리자 세션으로 먼저 적용합니다. 상태 버킷 절차는 nova-infra `terraform/aws/init/grandis-nova/backend.tf` 주석에 있습니다.
+2. `secrets.sops.yaml`을 만들고 `sops --encrypt --in-place secrets.sops.yaml`로 암호화합니다.
+3. 위 "적용"을 실행합니다.
+4. GitHub App 설정의 Webhook URL과 secret에 `terraform output -raw atlantis_url_events`, `terraform output -raw webhook_secret` 값을 넣습니다.
+5. nova-infra에 PR을 올려 plan 댓글이 달리는지 확인합니다.
 
 ## 웹 UI
 
