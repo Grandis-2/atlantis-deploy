@@ -68,6 +68,9 @@ locals {
       # PR 브랜치를 main 과 합친 상태로 plan 한다 (그 사이 main 의 변경을 되돌리지 않게)
       { name = "ATLANTIS_CHECKOUT_STRATEGY", value = "merge" },
       { name = "ATLANTIS_HIDE_PREV_PLAN_COMMENTS", value = "true" },
+      # main 브랜치 보호가 atlantis/apply 체크를 요구하면 apply 전 PR 은 늘 "blocked" 라 mergeable 요건을 못 넘는다.
+      # mergeable 을 판단할 때 atlantis/apply 체크만 빼고 본다 (Atlantis 문서 command-requirements 권장)
+      { name = "ATLANTIS_GH_ALLOW_MERGEABLE_BYPASS_APPLY", value = "true" },
       { name = "ATLANTIS_WEB_BASIC_AUTH", value = "true" },
       { name = "ATLANTIS_WEB_USERNAME", value = var.web_username },
       # 인프라 스택의 provider 가 이 역할을 빌린다. 세션 이름은 atlantis_user
