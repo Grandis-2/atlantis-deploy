@@ -51,7 +51,7 @@ variable "ssm_parameter_prefix" {
 }
 
 variable "secrets_file" {
-  description = "sops 로 암호화한 비밀 파일 (github_token 또는 github_app_key, ncloud_access_key, ncloud_secret_key)"
+  description = "sops 로 암호화한 비밀 파일 (github_app_key, ncloud_access_key, ncloud_secret_key)"
   type        = string
   default     = "secrets.sops.yaml"
 }
@@ -93,29 +93,15 @@ variable "atlantis_repo_allowlist" {
   type        = list(string)
 }
 
-variable "atlantis_allowed_repo_names" {
-  description = "웹훅을 코드로 만들 GitHub 저장소 이름 (PAT 방식에서 modules/github-repository-webhook 를 쓸 때)"
-  type        = list(string)
-  default     = []
-}
-
-# GitHub — PAT(봇 계정) 또는 GitHub App 중 하나
-variable "atlantis_github_user" {
-  description = "PAT 방식: Atlantis 가 쓰는 GitHub 봇 계정 이름. 토큰은 secrets.sops.yaml 의 github_token"
-  type        = string
-  default     = ""
-}
-
+# GitHub App — 개인키는 secrets.sops.yaml 의 github_app_key
 variable "atlantis_github_app_id" {
-  description = "App 방식: GitHub App ID. 개인키는 secrets.sops.yaml 의 github_app_key"
+  description = "GitHub App ID"
   type        = string
-  default     = ""
 }
 
 variable "atlantis_github_app_slug" {
-  description = "App 방식: GitHub App 슬러그 (Atlantis 가 자기 댓글을 알아보는 데 쓴다)"
+  description = "GitHub App 슬러그 (Atlantis 가 자기 댓글을 알아보는 데 쓴다)"
   type        = string
-  default     = ""
 }
 
 variable "web_username" {

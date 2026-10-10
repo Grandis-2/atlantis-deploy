@@ -28,17 +28,14 @@ locals {
   atlantis_url        = local.use_domain ? "https://${local.atlantis_fqdn}" : "http://${module.alb.dns_name}"
   atlantis_url_events = "${local.atlantis_url}/events"
 
-  # GitHub 인증 — App ID 가 있으면 App, 아니면 PAT(봇 계정)
-  use_github_app = var.atlantis_github_app_id != ""
-
   # 비밀 — sops 파일이 없으면(로컬 에뮬레이터 시험 등) 자리값을 넣는다
   secrets = fileexists("${path.module}/${var.secrets_file}") ? data.sops_file.secrets[0].data : {}
 
   ssm_secrets = merge(
     {
-      "github/${local.use_github_app ? "app/key" : "user/token"}" = lookup(local.secrets, local.use_github_app ? "github_app_key" : "github_token", "CHANGE_ME")
-      "webhook/secret"                                            = random_id.webhook.hex
-      "web/password"                                              = random_password.web.result
+      "github/app/key" = lookup(local.secrets, "github_app_key", "CHANGE_ME")
+      "webhook/secret" = random_id.webhook.hex
+      "web/password"   = random_password.web.result
     },
     # NCP(ncp/* 스택)용 인증키
     {
@@ -80,17 +77,16 @@ locals {
       { name = "TF_CLI_ARGS_init", value = "-backend-config=bucket=${var.tfstate_bucket} -backend-config=region=${var.aws_region}" },
       { name = "AWS_REGION", value = var.aws_region },
     ],
-    local.use_github_app ? [
+    # GitHub App 으로 인증한다 (개인키는 SSM github/app/key)
+    [
       { name = "ATLANTIS_GH_APP_ID", value = var.atlantis_github_app_id },
       { name = "ATLANTIS_GH_APP_SLUG", value = var.atlantis_github_app_slug },
       { name = "ATLANTIS_WRITE_GIT_CREDS", value = "true" },
-      ] : [
-      { name = "ATLANTIS_GH_USER", value = var.atlantis_github_user },
     ],
   )
 
   container_definition_secrets = [
-    { name = local.use_github_app ? "ATLANTIS_GH_APP_KEY" : "ATLANTIS_GH_TOKEN", valueFrom = aws_ssm_parameter.secret["github/${local.use_github_app ? "app/key" : "user/token"}"].arn },
+    { name = "ATLANTIS_GH_APP_KEY", valueFrom = aws_ssm_parameter.secret["github/app/key"].arn },
     { name = "ATLANTIS_GH_WEBHOOK_SECRET", valueFrom = aws_ssm_parameter.secret["webhook/secret"].arn },
     { name = "ATLANTIS_WEB_PASSWORD", valueFrom = aws_ssm_parameter.secret["web/password"].arn },
     { name = "NCLOUD_ACCESS_KEY", valueFrom = aws_ssm_parameter.secret["ncloud/access_key"].arn },

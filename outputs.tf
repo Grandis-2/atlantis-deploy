@@ -4,13 +4,8 @@ output "atlantis_url" {
 }
 
 output "atlantis_url_events" {
-  description = "Webhook events URL of Atlantis (GitHub App · 저장소 웹훅의 Payload URL)"
+  description = "Webhook events URL of Atlantis (GitHub App 의 Webhook URL)"
   value       = local.atlantis_url_events
-}
-
-output "atlantis_allowed_repo_names" {
-  description = "Github repositories where webhook should be created"
-  value       = var.atlantis_allowed_repo_names
 }
 
 output "task_role_arn" {

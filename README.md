@@ -6,22 +6,34 @@ Atlantis가 자기 자신을 배포할 수는 없으므로, 이 저장소만 관
 
 ## 아키텍처
 
-```
-GitHub (Grandis-2/nova-infra PR)
-  │  webhook (GitHub App: nova-atlantis)
-  ▼
-ALB  https://atlantis.grandis-nova.link        public 서브넷 · 443 (80 → 443 리다이렉트)
-  │  4141, ALB 보안 그룹에서만
-  ▼
-ECS Fargate 태스크 1개 (nova-atlantis)          app 서브넷 · 공인 IP 없음 · 밖으로는 NAT 경유
-  ├─ SSM Parameter Store   GitHub App 키 · webhook 비밀 · 웹 UI 비밀번호 · NCP 키 (시작할 때 주입)
-  ├─ S3 상태 버킷           Terraform 상태 · 잠금 (태스크 역할로 직접)
-  ├─ AssumeRole ─▶ atlantis-grandis-nova-admin   nova-infra 스택 적용
-  ├─ AssumeRole ─▶ nova-sops-common / -secure     sops 복호화
-  └─ CloudWatch Logs (14일)
+```mermaid
+flowchart LR
+  dev["개발자"] -- "PR · 댓글" --> gh["GitHub<br/>Grandis-2/nova-infra"]
+  gh -- "webhook<br/>App: nova-atlantis" --> alb
+
+  subgraph vpc["nova-prod VPC (nova-infra vpc 스택)"]
+    alb["ALB · public 서브넷<br/>atlantis.grandis-nova.link<br/>443, 80→443"]
+    task["Atlantis v0.48.0<br/>ECS Fargate · app 서브넷<br/>0.5 vCPU · 2 GB<br/>밖으로는 NAT 경유"]
+    alb -- "4141" --> task
+  end
+
+  subgraph managed["AWS 관리형 서비스"]
+    ssm[("SSM Parameter Store<br/>App 키 · webhook · NCP 키")]
+    state[("S3 상태 버킷<br/>상태 · 잠금")]
+    logs["CloudWatch Logs"]
+  end
+
+  subgraph roles["맡는 IAM 역할"]
+    admin["atlantis-grandis-nova-admin<br/>PowerUser + nova-* IAM"]
+    sops["nova-sops-common<br/>nova-sops-secure<br/>KMS 복호화"]
+  end
+
+  task -- "태스크 역할" --> managed
+  task -- "AssumeRole" --> roles
+  admin -- "terraform apply" --> infra["nova-infra 스택<br/>AWS · NCP 리소스"]
 ```
 
-VPC는 nova-infra의 `vpc` 스택을 그대로 씁니다(원격 상태). 두 저장소는 상태 버킷으로만 연결됩니다.
+VPC는 nova-infra의 `vpc` 스택을 원격 상태로 읽어 그대로 씁니다. 두 저장소는 상태 버킷으로만 연결됩니다.
 
 | 구성 | 내용 |
 | --- | --- |
@@ -49,6 +61,7 @@ VPC는 nova-infra의 `vpc` 스택을 그대로 씁니다(원격 상태). 두 저
 - `Grandis-2/nova-infra` 하나만 받습니다(`ATLANTIS_REPO_ALLOWLIST`).
 - 저장소가 사용자 정의 workflow를 쓸 수 없습니다(`allow_custom_workflows = false`). 저장소가 바꿀 수 있는 서버 설정은 `apply_requirements` 하나뿐입니다.
 - 웹 UI는 Basic 인증을 겁니다. 비밀번호는 SSM에 있습니다.
+- ALB는 웹 UI 때문에 인터넷 전체에 열려 있습니다. webhook만 받게 하려면 `alb_ingress_cidr_blocks`를 GitHub webhook 대역(`https://api.github.com/meta`의 `hooks`)으로 좁힙니다.
 
 ## 주요 서버 설정
 
@@ -60,7 +73,29 @@ VPC는 nova-infra의 `vpc` 스택을 그대로 씁니다(원격 상태). 두 저
 | `TF_VAR_assume_role_arn` | 인프라 스택의 provider가 맡을 admin 역할 |
 | `TF_CLI_ARGS_init` | backend 버킷 · 리전. backend 블록에는 변수를 쓸 수 없어서 init 때 붙입니다 |
 
-PR 흐름(plan → `atlantis apply` → 자동 병합)과 스택 순서는 nova-infra의 `atlantis.yaml`이 정합니다.
+## PR 흐름
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Dev as 개발자
+  participant GH as GitHub PR
+  participant AT as Atlantis
+  participant AWS as AWS (admin 역할)
+
+  Dev->>GH: PR 열기 / push
+  GH->>AT: webhook
+  AT->>AWS: terraform plan (바뀐 스택만, 하나씩)
+  AT-->>GH: plan 결과 댓글 · atlantis/plan 체크
+  Dev->>GH: 댓글 "atlantis apply"
+  GH->>AT: webhook
+  AT->>AWS: terraform apply (아래층부터)
+  AT-->>GH: apply 결과 댓글 · atlantis/apply 체크
+  AT->>GH: 모든 apply 성공 시 자동 병합 (automerge)
+```
+
+- main 보호 규칙이 `atlantis/apply` 체크를 요구하므로, apply 하지 않은 PR은 병합할 수 없습니다.
+- 스택 순서, autoplan 대상, apply 조건은 nova-infra의 `atlantis.yaml`이 정합니다.
 
 ## 적용
 

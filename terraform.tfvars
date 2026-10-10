@@ -14,10 +14,7 @@ atlantis_hostname = "atlantis"          # → https://atlantis.grandis-nova.link
 atlantis_version        = "v0.48.0"
 atlantis_repo_allowlist = ["github.com/Grandis-2/nova-infra"] # 인프라 저장소. 조직을 옮기면 바꾼다
 
-# GitHub 인증 — 둘 중 하나만 채운다 (docs: PAT 와 GitHub App 비교)
-#   PAT : 봇 계정 이름. 토큰은 secrets.sops.yaml 의 github_token
-#   App : App ID · 슬러그. 개인키는 secrets.sops.yaml 의 github_app_key
-# atlantis_github_user = ""
+# GitHub App. 개인키는 secrets.sops.yaml 의 github_app_key
 atlantis_github_app_id   = "5221487"
 atlantis_github_app_slug = "nova-atlantis"
 
