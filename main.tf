@@ -204,13 +204,8 @@ module "alb" {
     }
   }
 
-  route53_records = local.use_domain ? {
-    atlantis = {
-      zone_id = data.aws_route53_zone.this[0].zone_id
-      name    = var.atlantis_hostname
-      type    = "A"
-    }
-  } : null
+  # DNS 는 CloudFront 를 가리킨다(main_alb.tf 의 aws_route53_record.atlantis)
+  route53_records = null
 
   tags = local.tags
 }
