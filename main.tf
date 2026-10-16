@@ -277,6 +277,9 @@ module "ecs" {
     FARGATE = { weight = 1 }
   }
 
+  # 모듈 기본값은 Container Insights 켜기다. 태스크 하나라 무료 AWS/ECS 지표로 충분하고, 켜면 사용자 지정 지표로 과금된다
+  setting = [{ name = "containerInsights", value = "disabled" }]
+
   # Fargate 태스크 하나라 클러스터 부가 리소스는 만들지 않는다
   create_cloudwatch_log_group      = false
   create_security_group            = false
