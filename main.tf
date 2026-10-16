@@ -19,9 +19,9 @@ locals {
   # Atlantis
   atlantis_image = var.atlantis_image == "" ? "ghcr.io/runatlantis/atlantis:${var.atlantis_version}" : var.atlantis_image
 
-  # 도메인이 있으면 HTTPS(atlantis.<도메인>), 없으면 ALB 주소로 HTTP
-  use_domain      = var.route53_zone_name != ""
-  atlantis_fqdn   = local.use_domain ? "${var.atlantis_hostname}.${var.route53_zone_name}" : ""
+  # Atlantis 주소 atlantis.<도메인>. CloudFront → 메인 ALB 로만 받으므로 도메인이 반드시 있다(route53_zone_name 검증)
+  use_domain      = true
+  atlantis_fqdn   = "${var.atlantis_hostname}.${var.route53_zone_name}"
   certificate_arn = var.certificate_arn != "" ? var.certificate_arn : module.acm.acm_certificate_arn
 
   atlantis_url        = "https://${local.atlantis_fqdn}"

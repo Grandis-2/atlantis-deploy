@@ -12,9 +12,14 @@ variable "tags" {
 
 # ACM · Route53
 variable "route53_zone_name" {
-  description = "Route53 zone name (without trailing dot). 메인 ALB 로 받으려면 있어야 한다(CloudFront 별칭 · 인증서)"
+  description = "Route53 zone name (without trailing dot). Atlantis 주소 atlantis_hostname.<이 영역> 의 CloudFront 별칭 · 인증서 · 메인 ALB 규칙에 쓴다"
   type        = string
-  default     = ""
+
+  # 전용 ALB 가 없어 도메인 없이 받을 길이 없다
+  validation {
+    condition     = trimspace(var.route53_zone_name) != ""
+    error_message = "route53_zone_name 은 비울 수 없습니다. Atlantis 는 CloudFront → 메인 ALB 로만 받습니다."
+  }
 }
 
 variable "atlantis_hostname" {
