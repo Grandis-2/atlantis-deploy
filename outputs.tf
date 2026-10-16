@@ -34,9 +34,9 @@ output "web_password_parameter" {
   value       = aws_ssm_parameter.secret["web/password"].name
 }
 
-output "alb_dns_name" {
-  description = "Dns name of alb"
-  value       = module.alb.dns_name
+output "cloudfront_domain_name" {
+  description = "atlantis.<도메인> 이 가리키는 CloudFront 배포"
+  value       = aws_cloudfront_distribution.atlantis.domain_name
 }
 
 output "ecs_task_definition" {

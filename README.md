@@ -9,10 +9,11 @@ Atlantis가 자기 자신을 배포할 수는 없으므로, 이 저장소만 관
 ```mermaid
 flowchart LR
   dev["개발자"] -- "PR · 댓글" --> gh["GitHub<br/>Grandis-2/nova-infra"]
-  gh -- "webhook<br/>App: nova-atlantis" --> alb
+  gh -- "webhook<br/>App: nova-atlantis" --> cf["CloudFront<br/>atlantis.grandis-nova.link"]
+  cf -- "Host · 원본 확인 헤더" --> alb
 
   subgraph vpc["nova-prod VPC (nova-infra vpc 스택)"]
-    alb["ALB · public 서브넷<br/>atlantis.grandis-nova.link<br/>443, 80→443"]
+    alb["메인 ALB (nova-infra)<br/>이 저장소는 규칙 · SNI 만 붙인다"]
     task["Atlantis v0.48.0<br/>ECS Fargate · app 서브넷<br/>0.5 vCPU · 2 GB<br/>밖으로는 NAT 경유"]
     alb -- "4141" --> task
   end
@@ -33,13 +34,15 @@ flowchart LR
   admin -- "terraform apply" --> infra["nova-infra 스택<br/>AWS · NCP 리소스"]
 ```
 
-VPC는 nova-infra의 `vpc` 스택을 원격 상태로 읽어 그대로 씁니다. 두 저장소는 상태 버킷으로만 연결됩니다.
+VPC는 nova-infra의 `vpc` 스택을 원격 상태로 읽어 그대로 씁니다. 메인 ALB의 HTTPS 리스너 · 보안 그룹 · 원본 확인 헤더(`ecs` · `securitygroup` 스택)와 로그 버킷(`s3` 스택)도 원격 상태로 읽습니다. 두 저장소는 상태 버킷으로만 연결됩니다.
+
+**전용 ALB를 두지 않습니다.** nova-infra의 메인 ALB에 Atlantis 몫의 리스너 규칙(Host `atlantis.grandis-nova.link`)과 SNI 인증서만 붙이고, 메인 ALB가 CloudFront만 받으므로 앞에 CloudFront를 둡니다(`main_alb.tf`). ALB 시간 요금과 공인 IP 둘을 아낍니다. 이 진입로는 Atlantis가 아니라 이 저장소에서 사람이 apply 합니다. 대가로 메인 ALB · CloudFront가 망가지면 Atlantis도 닿지 않고, 그때는 관리자가 로컬에서 고칩니다.
 
 | 구성 | 내용 |
 | --- | --- |
 | 컴퓨팅 | Fargate 0.5 vCPU · 2 GB, 태스크 1개 상시 실행. Atlantis `v0.48.0` 고정 |
-| 네트워크 | ALB(public) → 태스크(app 서브넷). 태스크 보안 그룹은 ALB에서 오는 4141만 받음 |
-| 인증서 · DNS | ACM `atlantis.grandis-nova.link` + Route 53 |
+| 네트워크 | CloudFront → 메인 ALB(nova-infra) → 태스크(app 서브넷). 태스크 보안 그룹은 메인 ALB에서 오는 4141만 받음 |
+| 인증서 · DNS | ACM `atlantis.grandis-nova.link` 두 장(리전: 메인 ALB SNI, us-east-1: CloudFront, 검증 레코드 하나를 같이 씀) + Route 53 A · AAAA → CloudFront |
 | 비밀 | `secrets.sops.yaml`(KMS 암호화)을 Terraform이 풀어 SSM SecureString에 넣음. 태스크는 시작할 때 읽음 |
 | 로그 | CloudWatch Logs 14일 |
 
@@ -61,7 +64,8 @@ VPC는 nova-infra의 `vpc` 스택을 원격 상태로 읽어 그대로 씁니다
 - `Grandis-2/nova-infra` 하나만 받습니다(`ATLANTIS_REPO_ALLOWLIST`).
 - 저장소가 사용자 정의 workflow를 쓸 수 없습니다(`allow_custom_workflows = false`). 저장소가 바꿀 수 있는 서버 설정은 `apply_requirements` 하나뿐입니다.
 - 웹 UI는 Basic 인증을 겁니다. 비밀번호는 SSM에 있습니다.
-- ALB는 웹 UI 때문에 인터넷 전체에 열려 있습니다. webhook만 받게 하려면 `alb_ingress_cidr_blocks`를 GitHub webhook 대역(`https://api.github.com/meta`의 `hooks`)으로 좁힙니다.
+- 웹 UI 때문에 CloudFront는 인터넷 전체에 열려 있습니다. WAF는 두지 않습니다. 관리형 규칙이 webhook 본문(코드 · plan 출력)을 공격으로 오인할 수 있고, webhook은 서명 · 웹 UI는 Basic 인증으로 막습니다.
+- 태스크 보안 그룹은 모듈이 규칙을 독점 관리합니다(`enable_exclusive_rules`). 규칙은 `module.atlantis_sg` 의 `ingress_rules` 에만 둡니다. 밖에서 더하면 다음 apply 때 지워집니다.
 
 ## 주요 서버 설정
 

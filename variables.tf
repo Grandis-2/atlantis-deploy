@@ -10,16 +10,9 @@ variable "tags" {
   default     = {}
 }
 
-# ALB
-variable "alb_ingress_cidr_blocks" {
-  description = "List of IPv4 CIDR ranges to use on all ingress rules of the ALB."
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
 # ACM · Route53
 variable "route53_zone_name" {
-  description = "Route53 zone name (without trailing dot). 비우면 도메인 · 인증서 없이 ALB 주소로 HTTP 만 받는다"
+  description = "Route53 zone name (without trailing dot). 메인 ALB 로 받으려면 있어야 한다(CloudFront 별칭 · 인증서)"
   type        = string
   default     = ""
 }

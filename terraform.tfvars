@@ -18,9 +18,6 @@ atlantis_repo_allowlist = ["github.com/Grandis-2/nova-infra"] # 인프라 저장
 atlantis_github_app_id   = "5221487"
 atlantis_github_app_slug = "nova-atlantis"
 
-# ALB 접근 대역. GitHub 웹훅 대역으로 좁히려면 https://api.github.com/meta 의 hooks
-# alb_ingress_cidr_blocks = ["192.30.252.0/22", "185.199.108.0/22", "140.82.112.0/20"]
-
 tags = {
   Name = "nova-atlantis"
 }
