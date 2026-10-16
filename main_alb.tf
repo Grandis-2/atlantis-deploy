@@ -190,3 +190,24 @@ resource "aws_cloudfront_distribution" "atlantis" {
 
   tags = local.tags
 }
+
+# atlantis.<도메인> → CloudFront. 전용 ALB 모듈이 만들던 레코드를 그대로 옮겨 와 대상만 바꾼다(지우고 다시 만들지 않는다)
+moved {
+  from = module.alb.aws_route53_record.this["atlantis"]
+  to   = aws_route53_record.atlantis["A"]
+}
+
+resource "aws_route53_record" "atlantis" {
+  # CloudFront 가 IPv6 도 받으므로 AAAA 도 둔다
+  for_each = local.use_domain ? toset(["A", "AAAA"]) : toset([])
+
+  zone_id = data.aws_route53_zone.this[0].zone_id
+  name    = var.atlantis_hostname
+  type    = each.value
+
+  alias {
+    name                   = aws_cloudfront_distribution.atlantis.domain_name
+    zone_id                = aws_cloudfront_distribution.atlantis.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
