@@ -134,3 +134,9 @@ variable "readonly_principal_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "main_alb_origin_host" {
+  description = "CloudFront 가 메인 ALB 에 붙을 때 쓰는 이름(인프라 저장소 edge 스택의 origin.<API 도메인>). ALB 인증서에 이 이름이 있다"
+  type        = string
+  default     = "origin.api.grandis-nova.link"
+}

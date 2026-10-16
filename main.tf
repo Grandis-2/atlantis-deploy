@@ -359,6 +359,13 @@ resource "aws_ecs_service" "atlantis" {
     target_group_arn = module.alb.target_groups["atlantis"].arn
   }
 
+  # 메인 ALB(main_alb.tf). 전용 ALB 와 함께 붙여 두고 DNS 를 옮긴 뒤 전용 ALB 를 지운다
+  load_balancer {
+    container_name   = var.name
+    container_port   = var.atlantis_port
+    target_group_arn = aws_lb_target_group.main_alb.arn
+  }
+
   health_check_grace_period_seconds = 120
 
   # 태스크 수는 아래 예약 작업(근무 시간 1 · 그 외 0)이 정한다

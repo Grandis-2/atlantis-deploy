@@ -31,5 +31,20 @@ provider "aws" {
   }
 }
 
+# CloudFront 인증서는 us-east-1 에만 둘 수 있다
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Product   = var.product
+      Env       = var.env
+      ManagedBy = "terraform"
+      Stack     = "atlantis"
+    }
+  }
+}
+
 # secrets.sops.yaml 을 푼다. 파일 메타데이터의 역할(nova-sops-secure)을 빌려 KMS 로 복호화한다
 provider "sops" {}
