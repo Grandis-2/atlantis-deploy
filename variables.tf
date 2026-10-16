@@ -10,18 +10,16 @@ variable "tags" {
   default     = {}
 }
 
-# ALB
-variable "alb_ingress_cidr_blocks" {
-  description = "List of IPv4 CIDR ranges to use on all ingress rules of the ALB."
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
 # ACM · Route53
 variable "route53_zone_name" {
-  description = "Route53 zone name (without trailing dot). 비우면 도메인 · 인증서 없이 ALB 주소로 HTTP 만 받는다"
+  description = "Route53 zone name (without trailing dot). Atlantis 주소 atlantis_hostname.<이 영역> 의 CloudFront 별칭 · 인증서 · 메인 ALB 규칙에 쓴다"
   type        = string
-  default     = ""
+
+  # 전용 ALB 가 없어 도메인 없이 받을 길이 없다
+  validation {
+    condition     = trimspace(var.route53_zone_name) != ""
+    error_message = "route53_zone_name 은 비울 수 없습니다. Atlantis 는 CloudFront → 메인 ALB 로만 받습니다."
+  }
 }
 
 variable "atlantis_hostname" {

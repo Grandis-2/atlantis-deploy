@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────
 # 메인 ALB 로 받기 — atlantis.<도메인> → CloudFront(여기) → 메인 ALB 443(인프라 저장소) → Atlantis 태스크 4141
 #
-# 전용 ALB(module.alb)의 시간 요금과 공인 IP 둘을 없애려고 인프라 저장소의 메인 ALB 를 같이 쓴다.
+# 전용 ALB 를 두지 않고(시간 요금 · 공인 IP 둘) 인프라 저장소의 메인 ALB 를 같이 쓴다.
 # 메인 ALB · 리스너 · ALB SG 는 인프라 저장소 것이고, 여기서는 Atlantis 몫의 규칙 · SNI 인증서 · SG 규칙만 덧붙인다.
 # 그래서 Atlantis 의 진입로는 Atlantis 가 아니라 사람이 이 저장소에서 apply 한다(Atlantis 가 자기 진입로를 바꾸지 않는다).
 #
@@ -183,12 +183,7 @@ resource "aws_cloudfront_distribution" "atlantis" {
   tags = local.tags
 }
 
-# atlantis.<도메인> → CloudFront. 전용 ALB 모듈이 만들던 레코드를 그대로 옮겨 와 대상만 바꾼다(지우고 다시 만들지 않는다)
-moved {
-  from = module.alb.aws_route53_record.this["atlantis"]
-  to   = aws_route53_record.atlantis["A"]
-}
-
+# atlantis.<도메인> → CloudFront
 resource "aws_route53_record" "atlantis" {
   # CloudFront 가 IPv6 도 받으므로 AAAA 도 둔다
   for_each = local.use_domain ? toset(["A", "AAAA"]) : toset([])

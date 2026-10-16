@@ -19,13 +19,12 @@ locals {
   # Atlantis
   atlantis_image = var.atlantis_image == "" ? "ghcr.io/runatlantis/atlantis:${var.atlantis_version}" : var.atlantis_image
 
-  # 도메인이 있으면 HTTPS(atlantis.<도메인>), 없으면 ALB 주소로 HTTP
-  use_domain      = var.route53_zone_name != ""
-  atlantis_fqdn   = local.use_domain ? "${var.atlantis_hostname}.${var.route53_zone_name}" : ""
+  # Atlantis 주소 atlantis.<도메인>. CloudFront → 메인 ALB 로만 받으므로 도메인이 반드시 있다(route53_zone_name 검증)
+  use_domain      = true
+  atlantis_fqdn   = "${var.atlantis_hostname}.${var.route53_zone_name}"
   certificate_arn = var.certificate_arn != "" ? var.certificate_arn : module.acm.acm_certificate_arn
-  use_https       = local.use_domain || var.certificate_arn != ""
 
-  atlantis_url        = local.use_domain ? "https://${local.atlantis_fqdn}" : "http://${module.alb.dns_name}"
+  atlantis_url        = "https://${local.atlantis_fqdn}"
   atlantis_url_events = "${local.atlantis_url}/events"
 
   # 비밀 — sops 파일이 없으면(로컬 에뮬레이터 시험 등) 자리값을 넣는다
@@ -144,73 +143,6 @@ resource "aws_ssm_parameter" "secret" {
 }
 
 ###################
-# ALB
-###################
-module "alb" {
-  source  = "terraform-aws-modules/alb/aws"
-  version = "10.5.1"
-
-  name = var.name
-
-  vpc_id                     = local.vpc_id
-  subnets                    = local.public_subnet_ids
-  enable_deletion_protection = false
-  drop_invalid_header_fields = true
-
-  security_group_ingress_rules = merge(
-    { for i, cidr in var.alb_ingress_cidr_blocks : "http_${i}" => { from_port = 80, to_port = 80, ip_protocol = "tcp", cidr_ipv4 = cidr } },
-    local.use_https ? { for i, cidr in var.alb_ingress_cidr_blocks : "https_${i}" => { from_port = 443, to_port = 443, ip_protocol = "tcp", cidr_ipv4 = cidr } } : {},
-  )
-  security_group_egress_rules = {
-    vpc = {
-      ip_protocol = "-1"
-      cidr_ipv4   = data.terraform_remote_state.vpc.outputs.vpc_cidr
-    }
-  }
-
-  # 도메인이 있으면 HTTPS + HTTP→HTTPS 리다이렉트, 없으면 HTTP 로 바로 넘긴다
-  listeners = merge(
-    local.use_https ? {
-      https = {
-        port            = 443
-        protocol        = "HTTPS"
-        ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-        certificate_arn = local.certificate_arn
-        forward         = { target_group_key = "atlantis" }
-      }
-    } : {},
-    {
-      http = {
-        port     = 80
-        protocol = "HTTP"
-        forward  = local.use_https ? null : { target_group_key = "atlantis" }
-        redirect = local.use_https ? { port = "443", protocol = "HTTPS", status_code = "HTTP_301" } : null
-      }
-    },
-  )
-
-  target_groups = {
-    atlantis = {
-      protocol             = "HTTP"
-      port                 = var.atlantis_port
-      target_type          = "ip"
-      deregistration_delay = 10
-      create_attachment    = false # ECS 서비스가 태스크를 붙인다
-
-      health_check = {
-        path    = "/healthz"
-        matcher = "200"
-      }
-    }
-  }
-
-  # DNS 는 CloudFront 를 가리킨다(main_alb.tf 의 aws_route53_record.atlantis)
-  route53_records = null
-
-  tags = local.tags
-}
-
-###################
 # Security groups
 ###################
 module "atlantis_sg" {
@@ -223,13 +155,6 @@ module "atlantis_sg" {
 
   # 모듈이 규칙을 독점 관리한다(enable_exclusive_rules 기본 true). 모듈 밖에서 이 SG 에 규칙을 더하면 다음 apply 때 지워지므로 여기에만 둔다
   ingress_rules = {
-    atlantis = {
-      from_port                    = var.atlantis_port
-      to_port                      = var.atlantis_port
-      ip_protocol                  = "tcp"
-      description                  = "Atlantis"
-      referenced_security_group_id = module.alb.security_group_id
-    }
     # 메인 ALB(인프라 저장소, main_alb.tf)
     main_alb = {
       from_port                    = var.atlantis_port
@@ -357,13 +282,7 @@ resource "aws_ecs_service" "atlantis" {
     assign_public_ip = false
   }
 
-  load_balancer {
-    container_name   = var.name
-    container_port   = var.atlantis_port
-    target_group_arn = module.alb.target_groups["atlantis"].arn
-  }
-
-  # 메인 ALB(main_alb.tf). 전용 ALB 와 함께 붙여 두고 DNS 를 옮긴 뒤 전용 ALB 를 지운다
+  # 메인 ALB(main_alb.tf)
   load_balancer {
     container_name   = var.name
     container_port   = var.atlantis_port
