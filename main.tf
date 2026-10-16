@@ -221,6 +221,7 @@ module "atlantis_sg" {
   vpc_id      = local.vpc_id
   description = "Security group with open port for Atlantis (${var.atlantis_port}) from ALB, egress ports are all world open"
 
+  # 모듈이 규칙을 독점 관리한다(enable_exclusive_rules 기본 true). 모듈 밖에서 이 SG 에 규칙을 더하면 다음 apply 때 지워지므로 여기에만 둔다
   ingress_rules = {
     atlantis = {
       from_port                    = var.atlantis_port
@@ -228,6 +229,14 @@ module "atlantis_sg" {
       ip_protocol                  = "tcp"
       description                  = "Atlantis"
       referenced_security_group_id = module.alb.security_group_id
+    }
+    # 메인 ALB(인프라 저장소, main_alb.tf)
+    main_alb = {
+      from_port                    = var.atlantis_port
+      to_port                      = var.atlantis_port
+      ip_protocol                  = "tcp"
+      description                  = "Atlantis from main ALB"
+      referenced_security_group_id = local.main_alb.sg_id
     }
   }
 

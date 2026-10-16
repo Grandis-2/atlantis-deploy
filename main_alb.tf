@@ -100,16 +100,8 @@ resource "aws_lb_listener_rule" "main_alb" {
   depends_on = [aws_lb_listener_certificate.main_alb]
 }
 
-# 메인 ALB → Atlantis 4141. 두 SG 에 규칙만 더한다(SG 자체는 각자 저장소 것)
-resource "aws_vpc_security_group_ingress_rule" "atlantis_from_main_alb" {
-  security_group_id            = module.atlantis_sg.id
-  description                  = "Atlantis from main ALB"
-  referenced_security_group_id = local.main_alb.sg_id
-  ip_protocol                  = "tcp"
-  from_port                    = var.atlantis_port
-  to_port                      = var.atlantis_port
-}
-
+# 메인 ALB → Atlantis 4141. Atlantis SG 쪽 인바운드는 그 모듈 안(main.tf ingress_rules.main_alb)에 둔다(모듈이 규칙을 독점 관리한다).
+# 메인 ALB SG 는 인프라 저장소 것이고 규칙을 독점 관리하지 않아 여기서 아웃바운드만 더한다
 resource "aws_vpc_security_group_egress_rule" "main_alb_to_atlantis" {
   security_group_id            = local.main_alb.sg_id
   description                  = "to Atlantis tasks (atlantis-deploy)"
