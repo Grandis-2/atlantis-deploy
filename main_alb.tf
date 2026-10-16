@@ -33,6 +33,12 @@ resource "aws_acm_certificate" "cloudfront" {
 
   lifecycle {
     create_before_destroy = true
+
+    # 검증 레코드는 리전 인증서(module.acm)가 만든 것을 같이 쓴다. 도메인이 없거나 인증서를 밖에서 넘기면 그 레코드가 없다
+    precondition {
+      condition     = local.use_domain && var.certificate_arn == ""
+      error_message = "메인 ALB 로 받으려면 route53_zone_name 이 있고 certificate_arn 은 비워야 합니다(module.acm 의 검증 레코드를 같이 씁니다)."
+    }
   }
 }
 
@@ -46,7 +52,7 @@ resource "aws_acm_certificate_validation" "cloudfront" {
 # 메인 ALB 리스너의 기본 인증서는 API 것이다. Atlantis 이름은 SNI 로 더 붙인다
 resource "aws_lb_listener_certificate" "main_alb" {
   listener_arn    = local.main_alb.listener_arn
-  certificate_arn = module.acm.acm_certificate_arn
+  certificate_arn = local.certificate_arn
 }
 
 resource "aws_lb_target_group" "main_alb" {
